@@ -7,6 +7,7 @@ type Props = {
   task: TaskInstance | null;
   onClose: () => void;
   onEditSchedule: () => void;
+  onCycleTemplateColor?: (templateId: string) => void | Promise<void>;
 };
 
 function weekdayShortLabels(nums: number[]): string {
@@ -26,10 +27,13 @@ export default function TaskDetailModal(props: Props) {
             <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900">
               <div class="mb-3 flex items-start justify-between gap-2">
                 <div class="flex min-w-0 items-center gap-2">
-                  <span
-                    class="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 dark:ring-white/20"
+                  <button
+                    type="button"
+                    class="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 hover:ring-2 hover:ring-zinc-400 dark:ring-white/20 dark:hover:ring-zinc-500"
                     style={{ "background-color": task.color ?? "#71717a" }}
-                    aria-hidden="true"
+                    title="Cycle color"
+                    aria-label="Cycle task color"
+                    onClick={() => void props.onCycleTemplateColor?.(task.templateId)}
                   />
                   <h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{task.templateTitle}</h3>
                 </div>

@@ -27,6 +27,8 @@ function IconTrash() {
 type Props = {
   task: TaskInstance;
   onToggle: () => void;
+  /** Cycle template color (preset order); optional disables dot button */
+  onCycleColor?: (templateId: string) => void | Promise<void>;
   onEditRule?: () => void;
   /** Remove this day’s occurrence only (series continues on other days / weeks). */
   onRemoveFromDay?: () => void;
@@ -39,11 +41,17 @@ export default function TaskItem(props: Props) {
   return (
     <div class="flex flex-col gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
       <div class="flex items-center gap-2">
-        <span
-          class="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 dark:ring-white/20"
+        <button
+          type="button"
+          class="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 hover:ring-2 hover:ring-zinc-400 disabled:cursor-not-allowed disabled:opacity-50 dark:ring-white/20 dark:hover:ring-zinc-500"
           style={{ "background-color": dotColor() }}
-          title="Task color"
-          aria-hidden="true"
+          title="Cycle color"
+          aria-label="Cycle task color"
+          disabled={!props.onCycleColor}
+          onClick={(e) => {
+            e.stopPropagation();
+            void props.onCycleColor?.(props.task.templateId);
+          }}
         />
         <input
           type="checkbox"

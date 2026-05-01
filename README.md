@@ -1,4 +1,4 @@
-# Weekly Todo
+# Fast Todo
 
 Offline-first weekly task planner: recurring rules in a **week grid**, **color-coded** tasks, **system tray** quick view for today, and optional **daily reminder** notifications. Built with **Tauri 2**, **SolidJS**, **Tailwind CSS**, and **SQLite** (local data only).
 

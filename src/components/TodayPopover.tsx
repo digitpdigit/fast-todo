@@ -3,16 +3,31 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWindow, primaryMonitor } from "@tauri-apps/api/window";
 import * as api from "../api";
-import { applyDomTheme, bindSystemColorSchemeListener, parseThemeMode } from "../lib/theme";
+import {
+  applyDomTheme,
+  bindSystemColorSchemeListener,
+  parseThemeMode,
+} from "../lib/theme";
 import type { TaskInstance, ThemeMode } from "../types";
 import { formatYmd, startOfWeekMonday, weekdayNumFromDate } from "../lib/dates";
-import { DEFAULT_TASK_HEX, nextPresetHex, normalizeHex } from "../lib/taskColors";
+import {
+  DEFAULT_TASK_HEX,
+  nextPresetHex,
+  normalizeHex,
+} from "../lib/taskColors";
 
 const MARGIN_PX = 16;
 
 function IconPencil() {
   return (
-    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+    <svg
+      class="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
       <path
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -24,7 +39,14 @@ function IconPencil() {
 
 function IconTrash() {
   return (
-    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+    <svg
+      class="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
       <path
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -36,7 +58,11 @@ function IconTrash() {
 
 async function positionBottomRightWorkArea() {
   try {
-    if ((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ == null) return;
+    if (
+      (window as unknown as { __TAURI_INTERNALS__?: unknown })
+        .__TAURI_INTERNALS__ == null
+    )
+      return;
     const win = getCurrentWindow();
     const mon = await primaryMonitor();
     if (!mon) return;
@@ -73,12 +99,18 @@ export default function TodayPopover() {
   const [quickBusy, setQuickBusy] = createSignal(false);
   const [quickErr, setQuickErr] = createSignal("");
   const [previewColor, setPreviewColor] = createSignal(DEFAULT_TASK_HEX);
-  const [editingInstanceId, setEditingInstanceId] = createSignal<string | null>(null);
+  const [editingInstanceId, setEditingInstanceId] = createSignal<string | null>(
+    null
+  );
   const [editDraft, setEditDraft] = createSignal("");
   const [rowBusy, setRowBusy] = createSignal(false);
 
   const todayLabel = () =>
-    new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+    new Date().toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+    });
 
   const load = async () => {
     const d = formatYmd(new Date());
@@ -154,6 +186,24 @@ export default function TodayPopover() {
     }
   };
 
+  const cycleRowColor = async (t: TaskInstance) => {
+    if (rowBusy()) return;
+    setRowBusy(true);
+    try {
+      const r = await api.cycleTemplateColor(t.templateId);
+      const col = r.color;
+      setTasks((prev) =>
+        prev.map((x) => (x.templateId === t.templateId ? { ...x, color: col } : x))
+      );
+      void api.setPreferredTaskColor(col).catch(() => undefined);
+      await emitTodayRefresh();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRowBusy(false);
+    }
+  };
+
   const toggleDescription = (id: string) => {
     setExpandedTaskId((prev) => (prev === id ? null : id));
   };
@@ -161,7 +211,9 @@ export default function TodayPopover() {
   onMount(() => {
     void positionBottomRightWorkArea();
     void load();
-    void api.getPreferredTaskColor().then((c) => setPreviewColor(normalizeHex(c)));
+    void api
+      .getPreferredTaskColor()
+      .then((c) => setPreviewColor(normalizeHex(c)));
 
     const unbindMql = bindSystemColorSchemeListener();
     void api.getThemeMode().then((raw) => applyDomTheme(parseThemeMode(raw)));
@@ -187,10 +239,17 @@ export default function TodayPopover() {
     <div class="box-border flex min-h-screen flex-col overflow-hidden rounded-xl bg-zinc-100 text-zinc-900 ring-1 ring-zinc-300 dark:bg-zinc-950 dark:text-zinc-100 dark:ring-zinc-700/80">
       <header class="flex shrink-0 items-stretch gap-1 border-b border-zinc-200 bg-white/90 pr-1 dark:border-zinc-800 dark:bg-zinc-900/90">
         <div
-          class="flex min-w-0 flex-1 cursor-default select-none items-center px-3 py-2.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+          class="flex min-w-0 flex-1 cursor-default select-none items-center gap-2 px-3 py-2.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100"
           data-tauri-drag-region
         >
-          Today — {todayLabel()}
+          <img
+            src="/fasttodo.png"
+            alt=""
+            width="28"
+            height="28"
+            class="h-7 w-7 shrink-0 rounded-lg object-cover opacity-95 ring-1 ring-black/10 dark:ring-white/10"
+          />
+          <span class="min-w-0 truncate">Today — {todayLabel()}</span>
         </div>
         <button
           type="button"
@@ -213,14 +272,21 @@ export default function TodayPopover() {
               const editing = () => editingInstanceId() === t.id;
               const titleClass = () =>
                 `text-sm ${
-                  t.completed ? "text-zinc-400 line-through dark:text-zinc-500" : "text-zinc-900 dark:text-zinc-100"
+                  t.completed
+                    ? "text-zinc-400 line-through dark:text-zinc-500"
+                    : "text-zinc-900 dark:text-zinc-100"
                 }`;
               return (
-                <div class="flex gap-2 rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-900">
-                  <span
-                    class="mt-1 h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 dark:ring-white/20"
+                <div class="flex gap-2 rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-900 items-center">
+                  <button
+                    type="button"
+                    class="mt-1 h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 hover:ring-2 hover:ring-zinc-400 disabled:opacity-50 dark:ring-white/20 dark:hover:ring-zinc-500"
                     style={{ "background-color": t.color ?? "#71717a" }}
-                    aria-hidden="true"
+                    title="Cycle color"
+                    aria-label="Cycle task color"
+                    data-tauri-drag-region-exclude
+                    disabled={rowBusy()}
+                    onClick={() => void cycleRowColor(t)}
                   />
                   <input
                     type="checkbox"
@@ -230,7 +296,9 @@ export default function TodayPopover() {
                     checked={t.completed}
                     onChange={async () => {
                       const u = await api.toggleTaskComplete(t.id);
-                      setTasks((prev) => prev.map((x) => (x.id === u.id ? u : x)));
+                      setTasks((prev) =>
+                        prev.map((x) => (x.id === u.id ? u : x))
+                      );
                     }}
                   />
                   <div class="flex min-w-0 flex-1 flex-col gap-2">
@@ -240,7 +308,9 @@ export default function TodayPopover() {
                         <button
                           type="button"
                           class={`block w-full min-w-0 cursor-pointer text-left hover:underline ${titleClass()} ${
-                            expanded() ? "whitespace-normal wrap-break-word" : "truncate"
+                            expanded()
+                              ? "whitespace-normal wrap-break-word"
+                              : "truncate"
                           }`}
                           aria-expanded={expanded()}
                           data-tauri-drag-region-exclude
@@ -325,12 +395,14 @@ export default function TodayPopover() {
             }}
           </For>
           {tasks().length === 0 && (
-            <p class="py-2 text-center text-sm text-zinc-500 dark:text-zinc-500">Nothing scheduled today</p>
+            <p class="py-2 text-center text-sm text-zinc-500 dark:text-zinc-500">
+              Nothing scheduled today
+            </p>
           )}
         </div>
 
         <div class="mt-3 shrink-0 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <div class="flex gap-2 rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="flex gap-2 rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-900 items-center">
             <button
               type="button"
               class="mt-1 h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 ring-offset-1 ring-offset-white dark:ring-white/20 dark:ring-offset-zinc-900"
@@ -355,7 +427,9 @@ export default function TodayPopover() {
                 }}
               />
               <Show when={quickErr()}>
-                <p class="text-xs text-red-600 dark:text-red-400">{quickErr()}</p>
+                <p class="text-xs text-red-600 dark:text-red-400">
+                  {quickErr()}
+                </p>
               </Show>
             </div>
             <button

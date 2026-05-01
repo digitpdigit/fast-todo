@@ -1,4 +1,5 @@
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::image::Image;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter};
@@ -9,7 +10,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_i, &today_i, &PredefinedMenuItem::separator(app)?, &quit_i])?;
 
-    let icon = app.default_window_icon().ok_or("missing default icon")?.clone();
+    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
     let app_handle = app.clone();
     TrayIconBuilder::with_id("main-tray")

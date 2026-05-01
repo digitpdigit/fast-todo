@@ -56,6 +56,15 @@ export default function App() {
     }
   };
 
+  const cycleTemplateColorApp = async (templateId: string) => {
+    const r = await api.cycleTemplateColor(templateId);
+    const col = r.color;
+    setTasks((prev) => prev.map((t) => (t.templateId === templateId ? { ...t, color: col } : t)));
+    setRules((prev) => prev.map((rule) => (rule.id === templateId ? { ...rule, color: col } : rule)));
+    setDetailTask((dt) => (dt && dt.templateId === templateId ? { ...dt, color: col } : dt));
+    void api.setPreferredTaskColor(col).catch(() => undefined);
+  };
+
   onMount(() => {
     void refreshAll();
 
@@ -127,12 +136,21 @@ export default function App() {
     <div class="min-h-screen bg-zinc-100 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <header class="border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
         <div class="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <img
+            src="/fasttodo.png"
+            alt=""
+            width="40"
+            height="40"
+            class="h-10 w-10 shrink-0 rounded-xl object-cover shadow-sm ring-1 ring-black/10 dark:ring-white/10"
+          />
           <div>
-            <h1 class="text-lg font-bold tracking-tight">Weekly Todo</h1>
+            <h1 class="text-lg font-bold tracking-tight">Fast Todo</h1>
             <p class="text-xs text-zinc-500 dark:text-zinc-400">
               Add tasks per day · tray quick view
             </p>
           </div>
+        </div>
           <div class="flex flex-wrap items-center gap-2">
             <label class="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
               Theme
@@ -224,6 +242,7 @@ export default function App() {
           onNewItem={(weekdayNum) => openNewTask([weekdayNum])}
           onEditRule={openEditRule}
           onRemoveFromDay={(id) => void removeFromDay(id)}
+          onCycleTemplateColor={(id) => void cycleTemplateColorApp(id)}
           onOpenDetail={(task) => {
             batch(() => {
               setDetailTask(task);
@@ -262,6 +281,7 @@ export default function App() {
           const task = detailTask();
           if (task) openEditRule(task.templateId);
         }}
+        onCycleTemplateColor={(id) => void cycleTemplateColorApp(id)}
       />
     </div>
   );

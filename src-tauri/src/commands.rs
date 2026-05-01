@@ -358,6 +358,58 @@ pub fn update_task_title(state: State<DbState>, id: String, title: String) -> Re
     })
 }
 
+/// Order must match `PRESET_COLORS` in `src/lib/taskColors.ts`.
+const PRESET_HEX: [&str; 4] = ["#2563EB", "#16A34A", "#CA8A04", "#DC2626"];
+
+fn next_preset_hex_normalized(current: &str) -> Result<String, String> {
+    let cur = normalize_task_color(current)?;
+    let idx = PRESET_HEX.iter().position(|&h| h == cur.as_str());
+    let next_i = idx.map(|i| (i + 1) % PRESET_HEX.len()).unwrap_or(0);
+    Ok(PRESET_HEX[next_i].to_string())
+}
+
+#[tauri::command]
+pub fn cycle_template_color(state: State<DbState>, template_id: String) -> Result<TaskRule, String> {
+    with_conn(&state, |c| {
+        let raw: String = c
+            .query_row(
+                "SELECT COALESCE(color, ?1) FROM task_templates WHERE id = ?2",
+                params![db::DEFAULT_TASK_COLOR, template_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let next = next_preset_hex_normalized(&raw)?;
+        let n = c
+            .execute(
+                "UPDATE task_templates SET color = ?1 WHERE id = ?2",
+                params![next, template_id],
+            )
+            .map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Err("task not found".to_string());
+        }
+        c.query_row(
+            "SELECT id, title, days_of_week, COALESCE(description, ''), COALESCE(anchor_week_start, ''),
+                    created_at, COALESCE(color, ?1) FROM task_templates WHERE id = ?2",
+            params![db::DEFAULT_TASK_COLOR, template_id],
+            |r| {
+                let days_json: String = r.get(2)?;
+                let dw = parse_days(&days_json).unwrap_or_default();
+                Ok(TaskRule {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    days_of_week: dw,
+                    description: r.get(3)?,
+                    anchor_week_start: r.get(4)?,
+                    created_at: r.get(5)?,
+                    color: r.get(6)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())
+    })
+}
+
 #[tauri::command]
 pub fn delete_task(state: State<DbState>, id: String) -> Result<bool, String> {
     with_conn(&state, |c| {

@@ -18,7 +18,16 @@ pub fn run() {
             let state = init_db_state(app.handle());
             app.manage(state);
 
-            tray::setup_tray(app.handle()).expect("tray");
+            tray::setup_tray(app.handle())?;
+
+            for label in ["main", "today-popover"] {
+                if let Some(w) = app.get_webview_window(label) {
+                    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                    {
+                        let _ = w.set_icon(icon);
+                    }
+                }
+            }
 
             let reminder_app = app.handle().clone();
             std::thread::spawn(move || {
@@ -88,6 +97,7 @@ pub fn run() {
             commands::create_task,
             commands::update_task,
             commands::update_task_title,
+            commands::cycle_template_color,
             commands::delete_task,
             commands::remove_task_occurrence,
             commands::toggle_task_complete,

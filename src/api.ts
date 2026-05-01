@@ -51,6 +51,10 @@ export async function updateTaskTitle(templateId: string, title: string): Promis
   return invoke<TaskRule>("update_task_title", { id: templateId, title });
 }
 
+export async function cycleTemplateColor(templateId: string): Promise<TaskRule> {
+  return invoke<TaskRule>("cycle_template_color", { templateId });
+}
+
 export async function deleteTask(id: string): Promise<boolean> {
   return invoke<boolean>("delete_task", { id });
 }

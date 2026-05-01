@@ -13,6 +13,7 @@ type Props = {
   /** `null` = all; else match task color hex (normalized) */
   colorFilterHex: string | null;
   onToggle: (id: string) => void;
+  onCycleTemplateColor?: (templateId: string) => void | Promise<void>;
   onNewItem: (weekdayNum: number) => void;
   onEditRule: (templateId: string) => void;
   onRemoveFromDay: (instanceId: string) => void;
@@ -63,6 +64,7 @@ export default function WeekView(props: Props) {
                     <TaskItem
                       task={t}
                       onToggle={() => props.onToggle(t.id)}
+                      onCycleColor={props.onCycleTemplateColor}
                       onEditRule={() => props.onEditRule(t.templateId)}
                       onRemoveFromDay={() => void props.onRemoveFromDay(t.id)}
                       onTitleClick={() => props.onOpenDetail(t)}
