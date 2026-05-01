@@ -93,6 +93,9 @@ async function emitTodayRefresh() {
 }
 
 export default function TodayPopover() {
+  /** Popover task list scroller — preserve position across `load()` so edit/delete don’t jump to top. */
+  let taskListScrollRoot: HTMLDivElement | undefined;
+
   const [tasks, setTasks] = createSignal<TaskInstance[]>([]);
   const [expandedTaskId, setExpandedTaskId] = createSignal<string | null>(null);
   const [quickTitle, setQuickTitle] = createSignal("");
@@ -115,7 +118,11 @@ export default function TodayPopover() {
   const load = async () => {
     const d = formatYmd(new Date());
     const ta = await api.getTasksForDate(d);
+    const prevTop = taskListScrollRoot?.scrollTop ?? 0;
     setTasks(ta);
+    requestAnimationFrame(() => {
+      if (taskListScrollRoot) taskListScrollRoot.scrollTop = prevTop;
+    });
   };
 
   const submitQuickAdd = async () => {
@@ -263,7 +270,12 @@ export default function TodayPopover() {
         </button>
       </header>
       <div class="flex min-h-0 flex-1 flex-col p-3">
-        <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div
+          class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+          ref={(el) => {
+            taskListScrollRoot = el;
+          }}
+        >
           <For each={tasks()}>
             {(t) => {
               const descText = (t.templateDescription ?? "").trim();

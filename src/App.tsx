@@ -48,12 +48,17 @@ export default function App() {
   };
 
   const refreshAll = async () => {
+    const sx = window.scrollX;
+    const sy = window.scrollY;
     try {
       await Promise.all([loadWeek(), loadMeta()]);
     } catch (e) {
       console.error("refreshAll", e);
       throw e;
     }
+    requestAnimationFrame(() => {
+      window.scrollTo(sx, sy);
+    });
   };
 
   const cycleTemplateColorApp = async (templateId: string) => {
