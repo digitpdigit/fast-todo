@@ -1,14 +1,13 @@
 # Weekly Todo
 
-Offline-first weekly task planner: recurring rules in a **week grid**, optional **property columns** (status, priority, etc.), **system tray** quick view for today, and optional **daily reminder** notifications. Built with **Tauri 2**, **SolidJS**, **Tailwind CSS**, and **SQLite** (local data only).
+Offline-first weekly task planner: recurring rules in a **week grid**, **color-coded** tasks, **system tray** quick view for today, and optional **daily reminder** notifications. Built with **Tauri 2**, **SolidJS**, **Tailwind CSS**, and **SQLite** (local data only).
 
 ## Features
 
-- Week view with per-day tasks, filters, and hidden property columns
-- Task rules: weekdays, description, defaults per property schema, **anchor week** (instances only in the week you created the rule)
-- Property schemas (enum options with colors); delete schema cleans task JSON
-- Tray **Today** popover: draggable, theme-aware, expandable task descriptions
-- **Theme**: System / Light / Dark (persisted, synced between windows)
+- **Week view** with per-day tasks, filters by completion (all / active / done) and by **preset color** (blue, green, yellow, red)
+- **Task rules:** weekdays, optional description, **anchor week** (instances only in the week you created the rule), one of four **preset colors**; click the color control in the task modal to **cycle** presets. Last chosen color is stored as the **preferred default** for new tasks
+- **Tray “Today” popover:** theme-aware list for today; **inline add** (title + cycle color); **edit title** and **delete** task (no extra modal); long titles **truncate** with ellipsis, **tap to expand** (same idea as descriptions); descriptions expandable when present
+- **Theme:** System / Light / Dark (persisted, synced between windows)
 - Data stays on device: SQLite in the OS app data directory
 
 ## Requirements
@@ -48,7 +47,7 @@ Installers and bundles are written under **`src-tauri/target/release/bundle/`** 
 
 ## Project layout
 
-- `src/` — SolidJS UI, `api.ts` (Tauri invoke), `lib/` helpers
+- `src/` — SolidJS UI, `api.ts` (Tauri invoke), `lib/` helpers (dates, theme, task colors)
 - `src-tauri/` — Rust backend, SQLite, tray, window config
 - `index.html` / `vite.config.ts` — frontend entry and tooling
 
