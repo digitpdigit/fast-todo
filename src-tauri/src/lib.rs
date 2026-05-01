@@ -61,7 +61,7 @@ pub fn run() {
                                 "SELECT COUNT(*) FROM task_instances ti
                                  JOIN task_templates tt ON tt.id = ti.template_id
                                  WHERE ti.date = ?1 AND ti.completed = 0
-                                   AND (COALESCE(tt.anchor_week_start, '') = '' OR tt.anchor_week_start = ?2)",
+                                   AND tt.anchor_week_start = ?2",
                                 [&today_str, &monday_str],
                                 |r| r.get(0),
                             )
@@ -88,6 +88,7 @@ pub fn run() {
             commands::create_task,
             commands::update_task,
             commands::delete_task,
+            commands::remove_task_occurrence,
             commands::toggle_task_complete,
             commands::set_task_property,
             commands::list_property_schemas,

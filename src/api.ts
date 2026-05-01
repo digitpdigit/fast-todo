@@ -59,6 +59,10 @@ export async function deleteTask(id: string): Promise<boolean> {
   return invoke<boolean>("delete_task", { id });
 }
 
+export async function removeTaskOccurrence(instanceId: string): Promise<void> {
+  return invoke<void>("remove_task_occurrence", { id: instanceId });
+}
+
 export async function toggleTaskComplete(id: string): Promise<TaskInstance> {
   return invoke<TaskInstance>("toggle_task_complete", { id });
 }

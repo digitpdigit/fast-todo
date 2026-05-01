@@ -27,6 +27,8 @@ type Props = {
     description: string,
     anchorWeekStart: string,
   ) => Promise<void>;
+  /** Delete template and all instances (edit mode only). */
+  onDeleteSeries?: (templateId: string) => Promise<void>;
 };
 
 export default function TaskRuleModal(props: Props) {
@@ -121,6 +123,27 @@ export default function TaskRuleModal(props: Props) {
     }
   };
 
+  const deleteSeries = async () => {
+    const e = props.editing;
+    if (!e || !props.onDeleteSeries) return;
+    if (
+      !confirm(
+        "Delete this task and all scheduled occurrences? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setSaveError("");
+    try {
+      await props.onDeleteSeries(e.id);
+      props.onSaved();
+      props.onClose();
+    } catch (err) {
+      console.error(err);
+      setSaveError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   return (
     <Show when={props.open}>
       <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -138,7 +161,8 @@ export default function TaskRuleModal(props: Props) {
             </button>
           </div>
           <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-            Pick which weekdays this task repeats. One day only = once per week on that day.
+            Weekdays apply only to the week shown in the header when you save. Tasks do not auto-copy to the next week —
+            navigate to another week and add again if needed.
           </p>
           {saveError() && (
             <p class="mb-3 rounded border border-red-300 bg-red-50 px-2 py-1 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
@@ -210,6 +234,17 @@ export default function TaskRuleModal(props: Props) {
               </For>
             </div>
           </div>
+          <Show when={props.editing && props.onDeleteSeries}>
+            <div class="mb-4">
+              <button
+                type="button"
+                class="text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                onClick={() => void deleteSeries()}
+              >
+                Delete task…
+              </button>
+            </div>
+          </Show>
           <div class="flex justify-end gap-2">
             <button
               type="button"

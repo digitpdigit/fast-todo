@@ -39,7 +39,8 @@ type Props = {
   onToggle: () => void;
   onPropertyChange: (schemaId: string, value: string) => void;
   onEditRule?: () => void;
-  onDeleteRule?: () => void;
+  /** Remove this day’s occurrence only (series continues on other days / weeks). */
+  onRemoveFromDay?: () => void;
   onTitleClick?: () => void;
 };
 
@@ -65,7 +66,7 @@ export default function TaskItem(props: Props) {
         >
           {props.task.templateTitle}
         </button>
-        {(props.onEditRule || props.onDeleteRule) && (
+        {(props.onEditRule || props.onRemoveFromDay) && (
           <div class="flex shrink-0 items-center gap-0.5">
             {props.onEditRule && (
               <button
@@ -78,13 +79,13 @@ export default function TaskItem(props: Props) {
                 <IconPencil />
               </button>
             )}
-            {props.onDeleteRule && (
+            {props.onRemoveFromDay && (
               <button
                 type="button"
                 class="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-                title="Delete task"
-                aria-label="Delete task"
-                onClick={() => props.onDeleteRule?.()}
+                title="Remove from this day"
+                aria-label="Remove from this day"
+                onClick={() => props.onRemoveFromDay?.()}
               >
                 <IconTrash />
               </button>

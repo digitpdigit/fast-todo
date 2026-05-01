@@ -16,7 +16,7 @@ type Props = {
   onPropertyChange: (id: string, schemaId: string, value: string) => void;
   onNewItem: (weekdayNum: number) => void;
   onEditRule: (templateId: string) => void;
-  onDeleteRule: (templateId: string) => void;
+  onRemoveFromDay: (instanceId: string) => void;
   onOpenDetail: (task: TaskInstance) => void;
 };
 
@@ -69,7 +69,7 @@ export default function WeekView(props: Props) {
                       onToggle={() => props.onToggle(t.id)}
                       onPropertyChange={(sid, val) => props.onPropertyChange(t.id, sid, val)}
                       onEditRule={() => props.onEditRule(t.templateId)}
-                      onDeleteRule={() => void props.onDeleteRule(t.templateId)}
+                      onRemoveFromDay={() => void props.onRemoveFromDay(t.id)}
                       onTitleClick={() => props.onOpenDetail(t)}
                     />
                   )}

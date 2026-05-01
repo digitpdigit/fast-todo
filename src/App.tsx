@@ -129,7 +129,12 @@ export default function App() {
     }
   };
 
-  const deleteRule = async (templateId: string) => {
+  const removeFromDay = async (instanceId: string) => {
+    await api.removeTaskOccurrence(instanceId);
+    await refreshAll();
+  };
+
+  const deleteTaskSeries = async (templateId: string) => {
     await api.deleteTask(templateId);
     await refreshAll();
   };
@@ -255,7 +260,7 @@ export default function App() {
           }}
           onNewItem={(weekdayNum) => openNewTask([weekdayNum])}
           onEditRule={openEditRule}
-          onDeleteRule={(tid) => void deleteRule(tid)}
+          onRemoveFromDay={(id) => void removeFromDay(id)}
           onOpenDetail={(task) => {
             batch(() => {
               setDetailTask(task);
@@ -279,6 +284,7 @@ export default function App() {
         onUpdate={async (id, title, days, dp, description, anchorWeekStart) => {
           await api.updateTask(id, title, days, dp, description, anchorWeekStart);
         }}
+        onDeleteSeries={(templateId: string) => deleteTaskSeries(templateId)}
       />
 
       <TaskDetailModal

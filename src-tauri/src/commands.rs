@@ -4,7 +4,7 @@ use crate::models::{
     ReminderSettings, TaskInstanceDto, TaskRule,
 };
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::State;
@@ -43,8 +43,9 @@ fn serialize_properties(map: &HashMap<String, String>) -> Result<String, String>
     serde_json::to_string(map).map_err(|e| e.to_string())
 }
 
+/// Instances exist only in the template's anchor week (the week the rule was created / pinned to).
 fn template_matches_week(anchor_week_start: &str, request_week_monday: &str) -> bool {
-    anchor_week_start.is_empty() || anchor_week_start == request_week_monday
+    !anchor_week_start.is_empty() && anchor_week_start == request_week_monday
 }
 
 fn with_conn<T, F: FnOnce(&Connection) -> Result<T, String>>(state: &DbState, f: F) -> Result<T, String> {
@@ -108,7 +109,7 @@ pub fn get_tasks_for_week(state: State<DbState>, week_start: String) -> Result<V
                  FROM task_instances ti
                  JOIN task_templates tt ON tt.id = ti.template_id
                  WHERE ti.date >= ?1 AND ti.date <= ?2
-                   AND (COALESCE(tt.anchor_week_start, '') = '' OR tt.anchor_week_start = ?3)
+                   AND tt.anchor_week_start = ?3
                  ORDER BY ti.date, tt.title",
             )
             .map_err(|e| e.to_string())?;
@@ -125,6 +126,16 @@ pub fn get_tasks_for_week(state: State<DbState>, week_start: String) -> Result<V
 }
 
 fn ensure_instance(conn: &Connection, template_id: &str, date: &str) -> Result<(), String> {
+    let skipped: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM skipped_task_dates WHERE template_id = ?1 AND date = ?2",
+            params![template_id, date],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if skipped > 0 {
+        return Ok(());
+    }
     let n: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM task_instances WHERE template_id = ?1 AND date = ?2",
@@ -167,6 +178,32 @@ fn prune_instances_not_matching_days(conn: &Connection, template_id: &str, days:
             if !days.contains(&dow) {
                 conn.execute("DELETE FROM task_instances WHERE id = ?1", [&iid])
                     .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    prune_skipped_not_matching_days(conn, template_id, days)?;
+    Ok(())
+}
+
+fn prune_skipped_not_matching_days(conn: &Connection, template_id: &str, days: &[u8]) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT date FROM skipped_task_dates WHERE template_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let dates: Vec<String> = stmt
+        .query_map([template_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+
+    for date_s in dates {
+        if let Ok(d) = NaiveDate::parse_from_str(&date_s, "%Y-%m-%d") {
+            let dow = weekday_num(d.weekday());
+            if !days.contains(&dow) {
+                conn.execute(
+                    "DELETE FROM skipped_task_dates WHERE template_id = ?1 AND date = ?2",
+                    params![template_id, date_s],
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
     }
@@ -218,6 +255,9 @@ pub fn create_task(
     anchor_week_start: String,
 ) -> Result<TaskRule, String> {
     with_conn(&state, |c| {
+        if anchor_week_start.trim().is_empty() {
+            return Err("anchor week is required".to_string());
+        }
         let id = Uuid::new_v4().to_string();
         let created = db::now_iso();
         let days_json = serialize_days(&days)?;
@@ -250,12 +290,27 @@ pub fn update_task(
     anchor_week_start: String,
 ) -> Result<TaskRule, String> {
     with_conn(&state, |c| {
+        let anchor = if anchor_week_start.trim().is_empty() {
+            let cur: String = c
+                .query_row(
+                    "SELECT COALESCE(anchor_week_start, '') FROM task_templates WHERE id = ?1",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if cur.trim().is_empty() {
+                return Err("anchor week missing for task".to_string());
+            }
+            cur
+        } else {
+            anchor_week_start
+        };
         let days_json = serialize_days(&days)?;
         let def_json = serialize_properties(&default_properties)?;
         let n = c
             .execute(
                 "UPDATE task_templates SET title = ?2, days_of_week = ?3, property_schema_id = NULL, default_properties = ?4, description = ?5, anchor_week_start = ?6 WHERE id = ?1",
-                params![id, title, days_json, def_json, description, anchor_week_start],
+                params![id, title, days_json, def_json, description, anchor],
             )
             .map_err(|e| e.to_string())?;
         if n == 0 {
@@ -271,7 +326,7 @@ pub fn update_task(
             days_of_week: days,
             default_properties,
             description,
-            anchor_week_start,
+            anchor_week_start: anchor,
             created_at,
         })
     })
@@ -282,10 +337,37 @@ pub fn delete_task(state: State<DbState>, id: String) -> Result<bool, String> {
     with_conn(&state, |c| {
         c.execute("DELETE FROM task_instances WHERE template_id = ?1", [&id])
             .map_err(|e| e.to_string())?;
+        c.execute("DELETE FROM skipped_task_dates WHERE template_id = ?1", [&id])
+            .map_err(|e| e.to_string())?;
         let n = c
             .execute("DELETE FROM task_templates WHERE id = ?1", [&id])
             .map_err(|e| e.to_string())?;
         Ok(n > 0)
+    })
+}
+
+#[tauri::command]
+pub fn remove_task_occurrence(state: State<DbState>, id: String) -> Result<(), String> {
+    with_conn(&state, |c| {
+        let row: Option<(String, String)> = c
+            .query_row(
+                "SELECT template_id, date FROM task_instances WHERE id = ?1",
+                [&id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some((tid, date)) = row else {
+            return Err("instance not found".to_string());
+        };
+        c.execute("DELETE FROM task_instances WHERE id = ?1", [&id])
+            .map_err(|e| e.to_string())?;
+        c.execute(
+            "INSERT OR IGNORE INTO skipped_task_dates (template_id, date) VALUES (?1, ?2)",
+            params![tid, date],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
     })
 }
 
@@ -458,7 +540,7 @@ pub fn get_tasks_for_date(state: State<DbState>, date: String) -> Result<Vec<Tas
                  FROM task_instances ti
                  JOIN task_templates tt ON tt.id = ti.template_id
                  WHERE ti.date = ?1
-                   AND (COALESCE(tt.anchor_week_start, '') = '' OR tt.anchor_week_start = ?2)
+                   AND tt.anchor_week_start = ?2
                  ORDER BY tt.title",
             )
             .map_err(|e| e.to_string())?;
