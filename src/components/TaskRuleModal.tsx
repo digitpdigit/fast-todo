@@ -1,10 +1,11 @@
 import { createEffect, createSignal, For, on, Show } from "solid-js";
-import type { PropertySchema, TaskRule } from "../types";
+import type { TaskRule } from "../types";
 import { DAY_LABELS } from "../lib/dates";
+import * as api from "../api";
+import { DEFAULT_TASK_HEX, normalizeHex, nextPresetHex } from "../lib/taskColors";
 
 type Props = {
   open: boolean;
-  schemas: PropertySchema[];
   editing: TaskRule | null;
   /** Monday YYYY-MM-DD for new tasks (creation week anchor) */
   weekAnchorMonday: string;
@@ -15,7 +16,7 @@ type Props = {
   onCreate: (
     title: string,
     days: number[],
-    defaultProperties: Record<string, string>,
+    color: string,
     description: string,
     anchorWeekStart: string,
   ) => Promise<void>;
@@ -23,7 +24,7 @@ type Props = {
     id: string,
     title: string,
     days: number[],
-    defaultProperties: Record<string, string>,
+    color: string,
     description: string,
     anchorWeekStart: string,
   ) => Promise<void>;
@@ -34,11 +35,10 @@ type Props = {
 export default function TaskRuleModal(props: Props) {
   const [title, setTitle] = createSignal("");
   const [days, setDays] = createSignal<number[]>([1, 2, 3, 4, 5]);
-  const [defaultProps, setDefaultProps] = createSignal<Record<string, string>>({});
+  const [color, setColor] = createSignal(DEFAULT_TASK_HEX);
   const [description, setDescription] = createSignal("");
   const [saveError, setSaveError] = createSignal("");
 
-  // Only reset form when opening or switching create/edit target — not on unrelated parent re-renders
   createEffect(
     on(
       () =>
@@ -50,14 +50,15 @@ export default function TaskRuleModal(props: Props) {
             : "",
           props.weekAnchorMonday,
         ] as const,
-      ([open]) => {
+      () => {
+        const open = props.open;
         if (!open) return;
         setSaveError("");
         const e = props.editing;
         if (e) {
           setTitle(e.title);
           setDays([...(e.daysOfWeek ?? [])].sort((a, b) => a - b));
-          setDefaultProps({ ...(e.defaultProperties ?? {}) });
+          setColor(normalizeHex(e.color ?? DEFAULT_TASK_HEX));
           setDescription(e.description ?? "");
         } else {
           setTitle("");
@@ -65,8 +66,9 @@ export default function TaskRuleModal(props: Props) {
             ? [...new Set(props.initialWeekdays)].sort((a, b) => a - b)
             : [1, 2, 3, 4, 5];
           setDays(init);
-          setDefaultProps({});
           setDescription("");
+          setColor(normalizeHex(DEFAULT_TASK_HEX));
+          void api.getPreferredTaskColor().then((c) => setColor(normalizeHex(c)));
         }
       },
     ),
@@ -76,15 +78,6 @@ export default function TaskRuleModal(props: Props) {
     const cur = days();
     if (cur.includes(n)) setDays(cur.filter((d) => d !== n));
     else setDays([...cur, n].sort((a, b) => a - b));
-  };
-
-  const setDefaultForSchema = (schemaId: string, value: string) => {
-    setDefaultProps((prev) => {
-      const next = { ...prev };
-      if (!value) delete next[schemaId];
-      else next[schemaId] = value;
-      return next;
-    });
   };
 
   const save = async () => {
@@ -99,8 +92,7 @@ export default function TaskRuleModal(props: Props) {
         setSaveError("Pick at least one weekday.");
         return;
       }
-      // Plain objects/arrays for Tauri IPC (avoid Solid proxies)
-      const dp = { ...defaultProps() };
+      const c = normalizeHex(color());
       const descTrim = description().trim();
       const d = [...days()];
       if (props.editing) {
@@ -108,15 +100,16 @@ export default function TaskRuleModal(props: Props) {
           props.editing.id,
           t,
           d,
-          dp,
+          c,
           descTrim,
           props.editing.anchorWeekStart ?? "",
         );
       } else {
-        await props.onCreate(t, d, dp, descTrim, props.weekAnchorMonday ?? "");
+        await props.onCreate(t, d, c, descTrim, props.weekAnchorMonday ?? "");
       }
       props.onSaved();
       props.onClose();
+      void api.setPreferredTaskColor(c).catch((e) => console.warn("setPreferredTaskColor", e));
     } catch (err) {
       console.error(err);
       setSaveError(err instanceof Error ? err.message : String(err));
@@ -188,6 +181,20 @@ export default function TaskRuleModal(props: Props) {
             />
           </label>
           <div class="mb-3">
+            <div class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Color</div>
+            <div class="flex flex-wrap items-center gap-2 py-1">
+              <button
+                type="button"
+                class="h-7 w-7 shrink-0 rounded-full ring-2 ring-offset-2 ring-offset-white ring-zinc-300 hover:ring-zinc-500 dark:ring-offset-zinc-900 dark:ring-zinc-600 dark:hover:ring-zinc-400"
+                style={{ "background-color": normalizeHex(color()) }}
+                title="Next color"
+                aria-label="Cycle to next color"
+                onClick={() => setColor(nextPresetHex(color()))}
+              />
+              <span class="text-xs text-zinc-500 dark:text-zinc-400">Click the circle to cycle colors.</span>
+            </div>
+          </div>
+          <div class="mb-3">
             <div class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Repeat on</div>
             <div class="flex flex-wrap gap-2">
               <For each={DAY_LABELS}>
@@ -207,30 +214,6 @@ export default function TaskRuleModal(props: Props) {
                     </button>
                   );
                 }}
-              </For>
-            </div>
-          </div>
-          <div class="mb-4">
-            <div class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Default property values (optional)
-            </div>
-            <div class="flex max-h-48 flex-col gap-2 overflow-y-auto">
-              <For each={props.schemas}>
-                {(s) => (
-                  <label class="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                    {s.name}
-                    <select
-                      class="rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-950"
-                      value={defaultProps()[s.id] ?? ""}
-                      onChange={(e) => setDefaultForSchema(s.id, e.currentTarget.value)}
-                    >
-                      <option value="">—</option>
-                      <For each={s.options}>
-                        {(o) => <option value={o.value}>{o.label}</option>}
-                      </For>
-                    </select>
-                  </label>
-                )}
               </For>
             </div>
           </div>

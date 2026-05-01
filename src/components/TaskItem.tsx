@@ -1,11 +1,4 @@
-import { For, Show } from "solid-js";
-import type { PropertySchema, TaskInstance } from "../types";
-
-function schemasToShow(schemas: PropertySchema[], hiddenSchemaIds: string[]): PropertySchema[] {
-  if (!hiddenSchemaIds.length) return schemas;
-  const hidden = new Set(hiddenSchemaIds);
-  return schemas.filter((s) => !hidden.has(s.id));
-}
+import type { TaskInstance } from "../types";
 
 function IconPencil() {
   return (
@@ -33,11 +26,7 @@ function IconTrash() {
 
 type Props = {
   task: TaskInstance;
-  schemas: PropertySchema[];
-  /** Hidden property columns (empty = show all) */
-  hiddenSchemaIds: string[];
   onToggle: () => void;
-  onPropertyChange: (schemaId: string, value: string) => void;
   onEditRule?: () => void;
   /** Remove this day’s occurrence only (series continues on other days / weeks). */
   onRemoveFromDay?: () => void;
@@ -45,11 +34,17 @@ type Props = {
 };
 
 export default function TaskItem(props: Props) {
-  const show = () => schemasToShow(props.schemas, props.hiddenSchemaIds);
+  const dotColor = () => props.task.color ?? "#71717a";
 
   return (
     <div class="flex flex-col gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
       <div class="flex items-center gap-2">
+        <span
+          class="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 dark:ring-white/20"
+          style={{ "background-color": dotColor() }}
+          title="Task color"
+          aria-hidden="true"
+        />
         <input
           type="checkbox"
           checked={props.task.completed}
@@ -93,34 +88,6 @@ export default function TaskItem(props: Props) {
           </div>
         )}
       </div>
-      <Show when={show().length > 0}>
-        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-          <For each={show()}>
-            {(s) => {
-              const currentVal = () => (props.task.properties ?? {})[s.id] ?? "";
-              const selectedOpt = () => s.options.find((o) => o.value === currentVal());
-              return (
-                <select
-                  title={`${s.name}${selectedOpt() ? `: ${selectedOpt()!.label}` : ""}`}
-                  class="max-w-[12rem] cursor-pointer rounded-full border-0 py-1 pl-2.5 pr-8 text-xs font-medium text-white shadow-sm ring-1 ring-black/10 focus:outline-none focus:ring-2 focus:ring-blue-500/50 [&>option]:bg-zinc-800 [&>option]:text-zinc-100"
-                  style={{
-                    "background-color": selectedOpt()?.color ?? "#71717a",
-                    color: "#fff",
-                  }}
-                  value={currentVal()}
-                  onChange={(e) => props.onPropertyChange(s.id, e.currentTarget.value)}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <option value="">—</option>
-                  <For each={s.options}>
-                    {(o) => <option value={o.value}>{o.label}</option>}
-                  </For>
-                </select>
-              );
-            }}
-          </For>
-        </div>
-      </Show>
     </div>
   );
 }

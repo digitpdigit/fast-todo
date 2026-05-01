@@ -1,13 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type {
-  NewPropertyOptionInput,
-  PropertyDisplaySettings,
-  PropertySchema,
-  ReminderSettings,
-  TaskInstance,
-  TaskRule,
-  ThemeMode,
-} from "./types";
+import type { ReminderSettings, TaskInstance, TaskRule, ThemeMode } from "./types";
 
 export async function getTasksForWeek(weekStart: string): Promise<TaskInstance[]> {
   return invoke<TaskInstance[]>("get_tasks_for_week", { weekStart });
@@ -24,14 +16,14 @@ export async function listTasks(): Promise<TaskRule[]> {
 export async function createTask(
   title: string,
   days: number[],
-  defaultProperties: Record<string, string>,
+  color: string,
   description: string,
   anchorWeekStart: string,
 ): Promise<TaskRule> {
   return invoke<TaskRule>("create_task", {
     title,
     days,
-    defaultProperties,
+    color,
     description,
     anchorWeekStart,
   });
@@ -41,7 +33,7 @@ export async function updateTask(
   id: string,
   title: string,
   days: number[],
-  defaultProperties: Record<string, string>,
+  color: string,
   description: string,
   anchorWeekStart: string,
 ): Promise<TaskRule> {
@@ -49,10 +41,14 @@ export async function updateTask(
     id,
     title,
     days,
-    defaultProperties,
+    color,
     description,
     anchorWeekStart,
   });
+}
+
+export async function updateTaskTitle(templateId: string, title: string): Promise<TaskRule> {
+  return invoke<TaskRule>("update_task_title", { id: templateId, title });
 }
 
 export async function deleteTask(id: string): Promise<boolean> {
@@ -67,27 +63,12 @@ export async function toggleTaskComplete(id: string): Promise<TaskInstance> {
   return invoke<TaskInstance>("toggle_task_complete", { id });
 }
 
-export async function setTaskProperty(
-  id: string,
-  key: string,
-  value: string,
-): Promise<TaskInstance> {
-  return invoke<TaskInstance>("set_task_property", { id, key, value });
+export async function getPreferredTaskColor(): Promise<string> {
+  return invoke<string>("get_preferred_task_color");
 }
 
-export async function listPropertySchemas(): Promise<PropertySchema[]> {
-  return invoke<PropertySchema[]>("list_property_schemas");
-}
-
-export async function createPropertySchema(
-  name: string,
-  options: NewPropertyOptionInput[],
-): Promise<PropertySchema> {
-  return invoke<PropertySchema>("create_property_schema", { name, options });
-}
-
-export async function deletePropertySchema(id: string): Promise<boolean> {
-  return invoke<boolean>("delete_property_schema", { id });
+export async function setPreferredTaskColor(color: string): Promise<string> {
+  return invoke<string>("set_preferred_task_color", { color });
 }
 
 export async function getReminderSettings(): Promise<ReminderSettings> {
@@ -99,18 +80,6 @@ export async function setReminderSettings(
   time: string,
 ): Promise<ReminderSettings> {
   return invoke<ReminderSettings>("set_reminder_settings", { enabled, time });
-}
-
-export async function getPropertyDisplaySettings(): Promise<PropertyDisplaySettings> {
-  return invoke<PropertyDisplaySettings>("get_property_display_settings");
-}
-
-export async function setPropertyDisplaySettings(
-  hiddenSchemaIds: string[],
-): Promise<PropertyDisplaySettings> {
-  return invoke<PropertyDisplaySettings>("set_property_display_settings", {
-    hiddenSchemaIds,
-  });
 }
 
 export async function getThemeMode(): Promise<ThemeMode> {

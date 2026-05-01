@@ -1,7 +1,7 @@
 import { batch, createSignal, onCleanup, onMount } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import * as api from "./api";
-import type { PropertySchema, ReminderSettings, TaskInstance, TaskRule, ThemeMode } from "./types";
+import type { ReminderSettings, TaskInstance, TaskRule, ThemeMode } from "./types";
 import { formatPrettyRange, formatYmd, startOfWeekMonday } from "./lib/dates";
 import {
   applyDomTheme,
@@ -13,24 +13,19 @@ import type { CompletionFilter } from "./components/WeekView";
 import WeekView from "./components/WeekView";
 import FilterBar from "./components/FilterBar";
 import TaskRuleModal from "./components/TaskRuleModal";
-import PropertyModal from "./components/PropertyModal";
 import TaskDetailModal from "./components/TaskDetailModal";
-import PropertyManageBar from "./components/PropertyManageBar";
 
 export default function App() {
   const [weekStart, setWeekStart] = createSignal(startOfWeekMonday(new Date()));
   const [tasks, setTasks] = createSignal<TaskInstance[]>([]);
   const [rules, setRules] = createSignal<TaskRule[]>([]);
-  const [schemas, setSchemas] = createSignal<PropertySchema[]>([]);
-  const [hiddenSchemaIds, setHiddenSchemaIds] = createSignal<string[]>([]);
 
   const [completionFilter, setCompletionFilter] = createSignal<CompletionFilter>("all");
-  const [propertyFilters, setPropertyFilters] = createSignal<Record<string, string>>({});
+  const [colorFilterHex, setColorFilterHex] = createSignal<string | null>(null);
 
   const [taskModalOpen, setTaskModalOpen] = createSignal(false);
   const [taskEditing, setTaskEditing] = createSignal<TaskRule | null>(null);
   const [taskModalInitialWeekdays, setTaskModalInitialWeekdays] = createSignal<number[]>([]);
-  const [propertyModalOpen, setPropertyModalOpen] = createSignal(false);
   const [detailTask, setDetailTask] = createSignal<TaskInstance | null>(null);
   const [detailOpen, setDetailOpen] = createSignal(false);
 
@@ -47,16 +42,9 @@ export default function App() {
   };
 
   const loadMeta = async () => {
-    const [r, sch, rem, disp] = await Promise.all([
-      api.listTasks(),
-      api.listPropertySchemas(),
-      api.getReminderSettings(),
-      api.getPropertyDisplaySettings(),
-    ]);
+    const [r, rem] = await Promise.all([api.listTasks(), api.getReminderSettings()]);
     setRules(r);
-    setSchemas(sch);
     setReminder(rem);
-    setHiddenSchemaIds(disp.hiddenSchemaIds);
   };
 
   const refreshAll = async () => {
@@ -85,9 +73,14 @@ export default function App() {
     }).then((u) => {
       unlistenTheme = u;
     });
+    let unlistenToday: (() => void) | undefined;
+    void listen("today-refresh", () => void refreshAll()).then((u) => {
+      unlistenToday = u;
+    });
     onCleanup(() => {
       unbindMql();
       unlistenTheme?.();
+      unlistenToday?.();
     });
   });
 
@@ -99,15 +92,6 @@ export default function App() {
       void api.getTasksForWeek(formatYmd(next)).then(setTasks);
       return next;
     });
-  };
-
-  const onPropertyFilterChange = (schemaId: string, value: string) => {
-    setPropertyFilters((prev) => ({ ...prev, [schemaId]: value }));
-  };
-
-  const persistHidden = async (ids: string[]) => {
-    setHiddenSchemaIds(ids);
-    await api.setPropertyDisplaySettings(ids);
   };
 
   const openNewTask = (weekdayNums: number[]) => {
@@ -190,18 +174,6 @@ export default function App() {
       </header>
 
       <main class="mx-auto max-w-3xl px-4 py-4">
-        <div class="mb-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="rounded border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600"
-            onClick={() => setPropertyModalOpen(true)}
-          >
-            + Property
-          </button>
-        </div>
-
-        <PropertyManageBar schemas={schemas()} onDeleted={() => void refreshAll()} />
-
         <section class="mb-6 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <div class="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
             Daily reminder
@@ -233,29 +205,20 @@ export default function App() {
 
         <div class="mb-4">
           <FilterBar
-            schemas={schemas()}
             completionFilter={completionFilter()}
             onCompletionChange={setCompletionFilter}
-            propertyFilters={propertyFilters()}
-            onPropertyFilterChange={onPropertyFilterChange}
-            hiddenSchemaIds={hiddenSchemaIds()}
-            onHiddenSchemaIdsChange={(ids) => void persistHidden(ids)}
+            colorFilterHex={colorFilterHex()}
+            onColorFilterChange={setColorFilterHex}
           />
         </div>
 
         <WeekView
           weekStart={weekStart()}
           tasks={tasks()}
-          schemas={schemas()}
-          hiddenSchemaIds={hiddenSchemaIds()}
           completionFilter={completionFilter()}
-          propertyFilters={propertyFilters()}
+          colorFilterHex={colorFilterHex()}
           onToggle={async (id) => {
             const u = await api.toggleTaskComplete(id);
-            setTasks((prev) => prev.map((t) => (t.id === u.id ? u : t)));
-          }}
-          onPropertyChange={async (id, schemaId, value) => {
-            const u = await api.setTaskProperty(id, schemaId, value);
             setTasks((prev) => prev.map((t) => (t.id === u.id ? u : t)));
           }}
           onNewItem={(weekdayNum) => openNewTask([weekdayNum])}
@@ -272,17 +235,16 @@ export default function App() {
 
       <TaskRuleModal
         open={taskModalOpen()}
-        schemas={schemas()}
         editing={taskEditing()}
         weekAnchorMonday={formatYmd(weekStart())}
         initialWeekdays={taskModalInitialWeekdays()}
         onClose={() => setTaskModalOpen(false)}
         onSaved={() => void refreshAll()}
-        onCreate={async (title, days, dp, description, anchorWeekStart) => {
-          await api.createTask(title, days, dp, description, anchorWeekStart);
+        onCreate={async (title, days, col, description, anchorWeekStart) => {
+          await api.createTask(title, days, col, description, anchorWeekStart);
         }}
-        onUpdate={async (id, title, days, dp, description, anchorWeekStart) => {
-          await api.updateTask(id, title, days, dp, description, anchorWeekStart);
+        onUpdate={async (id, title, days, col, description, anchorWeekStart) => {
+          await api.updateTask(id, title, days, col, description, anchorWeekStart);
         }}
         onDeleteSeries={(templateId: string) => deleteTaskSeries(templateId)}
       />
@@ -290,7 +252,6 @@ export default function App() {
       <TaskDetailModal
         open={detailOpen()}
         task={detailTask()}
-        schemas={schemas()}
         onClose={() => {
           batch(() => {
             setDetailOpen(false);
@@ -301,12 +262,6 @@ export default function App() {
           const task = detailTask();
           if (task) openEditRule(task.templateId);
         }}
-      />
-
-      <PropertyModal
-        open={propertyModalOpen()}
-        onClose={() => setPropertyModalOpen(false)}
-        onSaved={() => void refreshAll()}
       />
     </div>
   );

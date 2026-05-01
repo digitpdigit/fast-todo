@@ -49,7 +49,47 @@ pub fn open_connection(app: &AppHandle) -> Result<Connection, String> {
     migrate_task_templates(&conn)?;
     migrate_skipped_task_dates(&conn)?;
     ensure_single_week_anchor_semantics(&conn)?;
+    migrate_remove_properties_add_color(&conn)?;
     Ok(conn)
+}
+
+/// Preset blue; keep in sync with frontend `DEFAULT_TASK_HEX` in `src/lib/taskColors.ts`.
+pub const DEFAULT_TASK_COLOR: &str = "#2563EB";
+
+fn migrate_remove_properties_add_color(conn: &Connection) -> Result<(), String> {
+    if setting_get(conn, "properties_removed_v1")?.is_some() {
+        return Ok(());
+    }
+
+    conn.execute("DROP TABLE IF EXISTS property_options", [])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DROP TABLE IF EXISTS property_schemas", [])
+        .map_err(|e| e.to_string())?;
+
+    add_column(
+        conn,
+        "task_templates",
+        "color",
+        &format!("TEXT NOT NULL DEFAULT '{}'", DEFAULT_TASK_COLOR),
+    )?;
+
+    if !column_missing(conn, "task_instances", "properties")? {
+        conn.execute("ALTER TABLE task_instances DROP COLUMN properties", [])
+            .map_err(|e| e.to_string())?;
+    }
+    if !column_missing(conn, "task_templates", "default_properties")? {
+        conn.execute("ALTER TABLE task_templates DROP COLUMN default_properties", [])
+            .map_err(|e| e.to_string())?;
+    }
+    if !column_missing(conn, "task_templates", "property_schema_id")? {
+        conn.execute("ALTER TABLE task_templates DROP COLUMN property_schema_id", [])
+            .map_err(|e| e.to_string())?;
+    }
+
+    let _ = conn.execute("DELETE FROM app_settings WHERE key = 'hidden_property_schema_ids'", []);
+
+    setting_set(conn, "properties_removed_v1", "1")?;
+    Ok(())
 }
 
 fn ensure_single_week_anchor_semantics(conn: &Connection) -> Result<(), String> {
@@ -211,7 +251,9 @@ fn backfill_anchor_week_starts(conn: &Connection) -> Result<(), String> {
 }
 
 fn migrate_task_templates(conn: &Connection) -> Result<(), String> {
-    if column_missing(conn, "task_templates", "default_properties")? {
+    if setting_get(conn, "properties_removed_v1")?.is_none()
+        && column_missing(conn, "task_templates", "default_properties")?
+    {
         conn.execute(
             "ALTER TABLE task_templates ADD COLUMN default_properties TEXT NOT NULL DEFAULT '{}'",
             [],

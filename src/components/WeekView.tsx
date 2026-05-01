@@ -1,5 +1,6 @@
-import type { PropertySchema, TaskInstance } from "../types";
+import type { TaskInstance } from "../types";
 import { addDays, formatYmd, weekdayNumFromDate } from "../lib/dates";
+import { normalizeHex } from "../lib/taskColors";
 import TaskItem from "./TaskItem";
 import { For } from "solid-js";
 
@@ -8,12 +9,10 @@ export type CompletionFilter = "all" | "active" | "done";
 type Props = {
   weekStart: Date;
   tasks: TaskInstance[];
-  schemas: PropertySchema[];
-  hiddenSchemaIds: string[];
   completionFilter: CompletionFilter;
-  propertyFilters: Record<string, string>;
+  /** `null` = all; else match task color hex (normalized) */
+  colorFilterHex: string | null;
   onToggle: (id: string) => void;
-  onPropertyChange: (id: string, schemaId: string, value: string) => void;
   onNewItem: (weekdayNum: number) => void;
   onEditRule: (templateId: string) => void;
   onRemoveFromDay: (instanceId: string) => void;
@@ -23,13 +22,12 @@ type Props = {
 function passesFilters(
   t: TaskInstance,
   completion: CompletionFilter,
-  propertyFilters: Record<string, string>,
+  colorFilterHex: string | null,
 ): boolean {
   if (completion === "active" && t.completed) return false;
   if (completion === "done" && !t.completed) return false;
-  for (const [schemaId, val] of Object.entries(propertyFilters)) {
-    if (!val) continue;
-    if ((t.properties ?? {})[schemaId] !== val) return false;
+  if (colorFilterHex !== null && normalizeHex(t.color ?? "") !== normalizeHex(colorFilterHex)) {
+    return false;
   }
   return true;
 }
@@ -44,7 +42,7 @@ export default function WeekView(props: Props) {
         const ymd = formatYmd(d);
         const weekdayNum = weekdayNumFromDate(d);
         const dayTasks = props.tasks.filter(
-          (t) => t.date === ymd && passesFilters(t, props.completionFilter, props.propertyFilters),
+          (t) => t.date === ymd && passesFilters(t, props.completionFilter, props.colorFilterHex),
         );
         const label = d.toLocaleDateString(undefined, {
           weekday: "long",
@@ -64,10 +62,7 @@ export default function WeekView(props: Props) {
                   {(t) => (
                     <TaskItem
                       task={t}
-                      schemas={props.schemas}
-                      hiddenSchemaIds={props.hiddenSchemaIds}
                       onToggle={() => props.onToggle(t.id)}
-                      onPropertyChange={(sid, val) => props.onPropertyChange(t.id, sid, val)}
                       onEditRule={() => props.onEditRule(t.templateId)}
                       onRemoveFromDay={() => void props.onRemoveFromDay(t.id)}
                       onTitleClick={() => props.onOpenDetail(t)}
