@@ -27,7 +27,8 @@
         "alwaysOnTop": true,
         "resizable": true,
         "skipTaskbar": true,
-        "shadow": true
+        "minWidth": 280,
+        "minHeight": 320
       }
     ],
     "security": {

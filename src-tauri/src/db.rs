@@ -50,7 +50,49 @@ pub fn open_connection(app: &AppHandle) -> Result<Connection, String> {
     migrate_skipped_task_dates(&conn)?;
     ensure_single_week_anchor_semantics(&conn)?;
     migrate_remove_properties_add_color(&conn)?;
+    migrate_task_instance_sort_key(&conn)?;
     Ok(conn)
+}
+
+fn migrate_task_instance_sort_key(conn: &Connection) -> Result<(), String> {
+    if setting_get(conn, "task_instance_sort_key_v1")?.is_some() {
+        return Ok(());
+    }
+
+    add_column(conn, "task_instances", "sort_key", "INTEGER NOT NULL DEFAULT 0")?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT ti.id, ti.date
+               FROM task_instances ti
+               JOIN task_templates tt ON tt.id = ti.template_id
+              ORDER BY ti.date, tt.title COLLATE NOCASE, ti.id",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, String)> = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut cur_date = String::new();
+    let mut rank: i64 = -1;
+    for (id, d) in rows {
+        if d != cur_date {
+            cur_date = d;
+            rank = 0;
+        } else {
+            rank += 1;
+        }
+        conn.execute(
+            "UPDATE task_instances SET sort_key = ?1 WHERE id = ?2",
+            params![rank, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    setting_set(conn, "task_instance_sort_key_v1", "1")?;
+    Ok(())
 }
 
 /// Preset blue; keep in sync with frontend `DEFAULT_TASK_HEX` in `src/lib/taskColors.ts`.

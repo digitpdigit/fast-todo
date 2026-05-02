@@ -104,7 +104,7 @@ pub fn get_tasks_for_week(state: State<DbState>, week_start: String) -> Result<V
                  JOIN task_templates tt ON tt.id = ti.template_id
                  WHERE ti.date >= ?1 AND ti.date <= ?2
                    AND tt.anchor_week_start = ?3
-                 ORDER BY ti.date, tt.title",
+                 ORDER BY ti.date, ti.sort_key ASC, ti.id",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -143,10 +143,17 @@ fn ensure_instance(conn: &Connection, template_id: &str, date: &str) -> Result<(
     if n > 0 {
         return Ok(());
     }
+    let sort_key: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_key), -1) + 1 FROM task_instances WHERE date = ?1",
+            params![date],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
     let id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO task_instances (id, template_id, date, completed) VALUES (?1, ?2, ?3, 0)",
-        params![id, template_id, date],
+        "INSERT INTO task_instances (id, template_id, date, completed, sort_key) VALUES (?1, ?2, ?3, 0, ?4)",
+        params![id, template_id, date, sort_key],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -513,7 +520,7 @@ pub fn get_tasks_for_date(state: State<DbState>, date: String) -> Result<Vec<Tas
                  JOIN task_templates tt ON tt.id = ti.template_id
                  WHERE ti.date = ?1
                    AND tt.anchor_week_start = ?2
-                 ORDER BY tt.title",
+                 ORDER BY ti.sort_key ASC, ti.id",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -577,6 +584,238 @@ pub fn set_theme_mode(state: State<DbState>, mode: String) -> Result<String, Str
     with_conn(&state, |c| {
         setting_set(c, "theme_mode", &mode)?;
         Ok(mode)
+    })
+}
+
+/// Stable swap placeholder; must never be a valid task date in normal use.
+const SWAP_SENTINEL_DATE: &str = "2178-06-06";
+
+fn merge_weekdays_move(days: &[u8], remove_dow: u8, add_dow: u8) -> Vec<u8> {
+    let mut v = days.to_vec();
+    if let Some(i) = v.iter().position(|&x| x == remove_dow) {
+        v.remove(i);
+    }
+    if !v.contains(&add_dow) {
+        v.push(add_dow);
+    }
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+fn sorted_string_vec(mut v: Vec<String>) -> Vec<String> {
+    v.sort();
+    v
+}
+
+fn assign_sort_keys_ordered(conn: &Connection, ordered_ids: &[String]) -> Result<(), String> {
+    for (i, uid) in ordered_ids.iter().enumerate() {
+        let k = i as i64;
+        let n = conn.execute(
+            "UPDATE task_instances SET sort_key = ?1 WHERE id = ?2",
+            params![k, uid],
+        )
+        .map_err(|e| e.to_string())?;
+        if n != 1 {
+            return Err("instance id mismatch in reorder".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn normalize_sort_keys_for_date(conn: &Connection, date: &str) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT ti.id FROM task_instances ti WHERE ti.date = ?1 ORDER BY ti.sort_key ASC, ti.id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let ids: Vec<String> = stmt
+        .query_map([date], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    assign_sort_keys_ordered(conn, &ids)
+}
+
+fn instance_ids_for_date(conn: &Connection, date: &str) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT ti.id FROM task_instances ti WHERE ti.date = ?1 ORDER BY ti.sort_key ASC, ti.id ASC")
+        .map_err(|e| e.to_string())?;
+    let ids: Vec<String> = stmt
+        .query_map([date], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(ids)
+}
+
+fn merge_id_at_index(mut ids: Vec<String>, moved_id: &str, insert_index: usize) -> Vec<String> {
+    ids.retain(|x| x != moved_id);
+    let idx = insert_index.min(ids.len());
+    ids.insert(idx, moved_id.to_string());
+    ids
+}
+
+fn swap_two_instances_metadata(conn: &Connection, id_a: &str, id_b: &str) -> Result<(), String> {
+    let ta: Option<(String, i64, i64)> = conn
+        .query_row(
+            "SELECT date, completed, sort_key FROM task_instances WHERE id = ?1",
+            params![id_a],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let tb: Option<(String, i64, i64)> = conn
+        .query_row(
+            "SELECT date, completed, sort_key FROM task_instances WHERE id = ?1",
+            params![id_b],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let (Some((da, ca, sa)), Some((db, cb, sb))) = (ta, tb) else {
+        return Err("swap target missing".to_string());
+    };
+    conn.execute(
+        "UPDATE task_instances SET date = ?1 WHERE id = ?2",
+        params![SWAP_SENTINEL_DATE, id_a],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE task_instances SET date = ?1 WHERE id = ?2",
+        params![&da, id_b],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE task_instances SET date = ?1, completed = ?2, sort_key = ?3 WHERE id = ?4",
+        params![db, cb, sb, id_a],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE task_instances SET completed = ?1, sort_key = ?2 WHERE id = ?3",
+        params![ca, sa, id_b],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_task_instances(state: State<DbState>, date_ymd: String, ordered_instance_ids: Vec<String>) -> Result<(), String> {
+    let _parsed = NaiveDate::parse_from_str(&date_ymd, "%Y-%m-%d").map_err(|e| e.to_string())?;
+    if ordered_instance_ids.is_empty() {
+        return Ok(());
+    }
+    let mut seen = std::collections::HashSet::new();
+    for id in &ordered_instance_ids {
+        if !seen.insert(id.as_str()) {
+            return Err("duplicate id in reorder list".to_string());
+        }
+    }
+    with_conn(&state, |c| {
+        let db_ids = instance_ids_for_date(c, &date_ymd)?;
+        if db_ids.len() != ordered_instance_ids.len() {
+            return Err("reorder list must include every task for that date".to_string());
+        }
+        let lhs = sorted_string_vec(db_ids);
+        let rhs = sorted_string_vec(ordered_instance_ids.clone());
+        if lhs != rhs {
+            return Err("reorder multiset does not match date".to_string());
+        }
+        assign_sort_keys_ordered(c, &ordered_instance_ids)?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub fn move_task_instance(
+    state: State<DbState>,
+    instance_id: String,
+    new_date_ymd: String,
+    insert_index: usize,
+) -> Result<(), String> {
+    let new_naive = NaiveDate::parse_from_str(&new_date_ymd, "%Y-%m-%d").map_err(|e| e.to_string())?;
+    let new_week_monday = db::monday_of_naive(new_naive).format("%Y-%m-%d").to_string();
+    let target_dow = weekday_num(new_naive.weekday());
+    with_conn(&state, |c| {
+        let row: Option<(String, String, String, String)> = c
+            .query_row(
+                "SELECT ti.template_id, ti.date, tt.days_of_week, COALESCE(tt.anchor_week_start,'') FROM task_instances ti INNER JOIN task_templates tt ON tt.id = ti.template_id WHERE ti.id = ?1",
+                params![instance_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some((tid, old_date_s, days_json, anchor_raw)) = row else {
+            return Err("instance not found".to_string());
+        };
+        let anchor = anchor_raw.trim();
+        if anchor.is_empty() {
+            return Err("task has no anchor week".to_string());
+        }
+        if anchor != new_week_monday {
+            return Err("target date is outside this task anchor week".to_string());
+        }
+        let old_naive =
+            NaiveDate::parse_from_str(&old_date_s, "%Y-%m-%d").map_err(|e| e.to_string())?;
+        let rm_dow = weekday_num(old_naive.weekday());
+        if old_date_s == new_date_ymd {
+            return Err("same day — use reorder instead".to_string());
+        }
+
+        let other_id_opt: Option<String> = c
+            .query_row(
+                "SELECT id FROM task_instances WHERE template_id = ?1 AND date = ?2 AND id != ?3",
+                params![tid, &new_date_ymd, &instance_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if let Some(ob) = other_id_opt {
+            swap_two_instances_metadata(c, &instance_id, &ob)?;
+            let d_after_swap_a = c
+                .query_row::<String, _, _>("SELECT date FROM task_instances WHERE id = ?1", params![instance_id], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
+            let d_after_swap_b = c
+                .query_row::<String, _, _>("SELECT date FROM task_instances WHERE id = ?1", params![ob], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
+            normalize_sort_keys_for_date(c, &d_after_swap_a)?;
+            normalize_sort_keys_for_date(c, &d_after_swap_b)?;
+            return Ok(());
+        }
+
+        c.execute(
+            "INSERT OR IGNORE INTO skipped_task_dates (template_id, date) VALUES (?1, ?2)",
+            params![&tid, &old_date_s],
+        )
+        .map_err(|e| e.to_string())?;
+
+        let mut tmpl_days = parse_days(&days_json)?;
+        tmpl_days = merge_weekdays_move(&tmpl_days, rm_dow, target_dow);
+        if tmpl_days.is_empty() {
+            return Err("invalid weekdays after move".to_string());
+        }
+        let merged_json = serialize_days(&tmpl_days)?;
+        c.execute(
+            "UPDATE task_templates SET days_of_week = ?1 WHERE id = ?2",
+            params![merged_json, &tid],
+        )
+        .map_err(|e| e.to_string())?;
+
+        c.execute(
+            "UPDATE task_instances SET date = ?1 WHERE id = ?2",
+            params![&new_date_ymd, &instance_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        prune_instances_not_matching_days(c, &tid, &tmpl_days)?;
+
+        let mut tgt_ids = instance_ids_for_date(c, &new_date_ymd)?;
+        tgt_ids = merge_id_at_index(tgt_ids, &instance_id, insert_index);
+        assign_sort_keys_ordered(c, &tgt_ids)?;
+        normalize_sort_keys_for_date(c, &old_date_s)?;
+
+        Ok(())
     })
 }
 

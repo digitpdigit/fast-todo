@@ -1,4 +1,11 @@
-import { batch, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  batch,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+  untrack,
+} from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import * as api from "./api";
 import type { ReminderSettings, TaskInstance, TaskRule, ThemeMode } from "./types";
@@ -14,8 +21,18 @@ import WeekView from "./components/WeekView";
 import FilterBar from "./components/FilterBar";
 import TaskRuleModal from "./components/TaskRuleModal";
 import TaskDetailModal from "./components/TaskDetailModal";
-
+import {
+  applyTemplateFanoutFromMerge,
+  broadcastTodayTasksChanged,
+  mergeTaskInstancesIntoWeek,
+  resolveWindowLabel,
+  type TodayRefreshPayload,
+} from "./lib/todayRefresh";
+import { restoreWindowScrollAfterPaint } from "./lib/scrollRestore";
 export default function App() {
+  /** Defer tray-driven refresh until task modal closes (skip scroll capture while modal/layout odd). */
+  let pendingTodayRefreshAfterModal = false;
+
   const [weekStart, setWeekStart] = createSignal(startOfWeekMonday(new Date()));
   const [tasks, setTasks] = createSignal<TaskInstance[]>([]);
   const [rules, setRules] = createSignal<TaskRule[]>([]);
@@ -36,15 +53,17 @@ export default function App() {
   const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
 
   const loadWeek = async () => {
-    const start = formatYmd(weekStart());
+    const start = formatYmd(untrack(weekStart));
     const t = await api.getTasksForWeek(start);
-    setTasks(t);
+    batch(() => setTasks(t));
   };
 
   const loadMeta = async () => {
     const [r, rem] = await Promise.all([api.listTasks(), api.getReminderSettings()]);
-    setRules(r);
-    setReminder(rem);
+    batch(() => {
+      setRules(r);
+      setReminder(rem);
+    });
   };
 
   const refreshAll = async () => {
@@ -56,39 +75,102 @@ export default function App() {
       console.error("refreshAll", e);
       throw e;
     }
-    requestAnimationFrame(() => {
-      window.scrollTo(sx, sy);
-    });
+    restoreWindowScrollAfterPaint(sx, sy);
   };
 
   const cycleTemplateColorApp = async (templateId: string) => {
     const r = await api.cycleTemplateColor(templateId);
     const col = r.color;
-    setTasks((prev) => prev.map((t) => (t.templateId === templateId ? { ...t, color: col } : t)));
-    setRules((prev) => prev.map((rule) => (rule.id === templateId ? { ...rule, color: col } : rule)));
-    setDetailTask((dt) => (dt && dt.templateId === templateId ? { ...dt, color: col } : dt));
+    let merged: TaskInstance[] = [];
+    batch(() => {
+      setTasks((prev) => {
+        const next = prev.map((t) => (t.templateId === templateId ? { ...t, color: col } : t));
+        merged = next.filter((t) => t.templateId === templateId);
+        return next;
+      });
+      setRules((prev) => prev.map((rule) => (rule.id === templateId ? { ...rule, color: col } : rule)));
+      setDetailTask((dt) => (dt && dt.templateId === templateId ? { ...dt, color: col } : dt));
+    });
     void api.setPreferredTaskColor(col).catch(() => undefined);
+    void broadcastTodayTasksChanged({ mergeInstances: merged });
   };
 
   onMount(() => {
-    void refreshAll();
+    void refreshAll().catch((err) => console.error("Startup refreshFailed", err));
 
     let unlistenTheme: (() => void) | undefined;
     const unbindMql = bindSystemColorSchemeListener();
     void api.getThemeMode().then((raw) => {
       const m = parseThemeMode(raw);
-      setThemeMode(m);
-      applyDomTheme(m);
+      batch(() => {
+        setThemeMode(m);
+        applyDomTheme(m);
+      });
     });
     void listen<{ mode: ThemeMode }>("theme-changed", (event) => {
       const m = parseThemeMode(event.payload.mode);
-      setThemeMode(m);
-      applyDomTheme(m);
+      batch(() => {
+        setThemeMode(m);
+        applyDomTheme(m);
+      });
     }).then((u) => {
       unlistenTheme = u;
     });
     let unlistenToday: (() => void) | undefined;
-    void listen("today-refresh", () => void refreshAll()).then((u) => {
+    const selfWin = resolveWindowLabel();
+    void listen<TodayRefreshPayload>("today-refresh", (event) => {
+      if (event.payload?.source === selfWin) return;
+      const p = event.payload;
+      const deferFull = () => {
+        untrack(() => {
+          if (taskModalOpen()) pendingTodayRefreshAfterModal = true;
+          else void refreshAll().catch((err) => console.error("today-refresh listener", err));
+        });
+      };
+
+      if (!p || p.needsFullReload) {
+        deferFull();
+        return;
+      }
+      if (p.removedInstanceId) {
+        const rid = p.removedInstanceId;
+        const openDetail = untrack(() => detailTask());
+        batch(() => {
+          setTasks((prev) => prev.filter((t) => t.id !== rid));
+          if (openDetail?.id === rid) {
+            setDetailOpen(false);
+            setDetailTask(null);
+          }
+        });
+        return;
+      }
+      if (p.mergeInstances?.length) {
+        batch(() => {
+          setTasks((prev) =>
+            applyTemplateFanoutFromMerge(
+              mergeTaskInstancesIntoWeek(prev, p.mergeInstances!),
+              p.mergeInstances!,
+            ),
+          );
+          setDetailTask((dt) => {
+            if (!dt) return dt;
+            const m = p.mergeInstances!.find((i) => i.id === dt.id);
+            if (m) return m;
+            const f = p.mergeInstances!.find((i) => i.templateId === dt.templateId);
+            return f
+              ? {
+                  ...dt,
+                  templateTitle: f.templateTitle,
+                  templateDescription: f.templateDescription,
+                  color: f.color,
+                }
+              : dt;
+          });
+        });
+        return;
+      }
+      deferFull();
+    }).then((u) => {
       unlistenToday = u;
     });
     onCleanup(() => {
@@ -98,12 +180,23 @@ export default function App() {
     });
   });
 
+  createEffect(() => {
+    if (taskModalOpen()) return;
+    if (!pendingTodayRefreshAfterModal) return;
+    pendingTodayRefreshAfterModal = false;
+    void refreshAll().catch((err) =>
+      console.error("today-refresh deferred after modal", err),
+    );
+  });
+
   const shiftWeek = (delta: number) => {
     setWeekStart((prev) => {
       const d = new Date(prev);
       d.setDate(prev.getDate() + delta * 7);
       const next = startOfWeekMonday(d);
-      void api.getTasksForWeek(formatYmd(next)).then(setTasks);
+      void api.getTasksForWeek(formatYmd(next)).then((t) =>
+        batch(() => setTasks(t)),
+      );
       return next;
     });
   };
@@ -129,12 +222,21 @@ export default function App() {
 
   const removeFromDay = async (instanceId: string) => {
     await api.removeTaskOccurrence(instanceId);
-    await refreshAll();
+    const openDetail = untrack(() => detailTask());
+    batch(() => {
+      setTasks((prev) => prev.filter((t) => t.id !== instanceId));
+      if (openDetail?.id === instanceId) {
+        setDetailOpen(false);
+        setDetailTask(null);
+      }
+    });
+    void broadcastTodayTasksChanged({ removedInstanceId: instanceId });
   };
 
   const deleteTaskSeries = async (templateId: string) => {
     await api.deleteTask(templateId);
     await refreshAll();
+    void broadcastTodayTasksChanged({ needsFullReload: true });
   };
 
   return (
@@ -209,7 +311,7 @@ export default function App() {
                 onChange={async (e) => {
                   const en = e.currentTarget.checked;
                   const r = await api.setReminderSettings(en, reminder().time);
-                  setReminder(r);
+                  batch(() => setReminder(r));
                 }}
               />
               Enabled
@@ -220,7 +322,7 @@ export default function App() {
               value={reminder().time}
               onChange={async (e) => {
                 const r = await api.setReminderSettings(reminder().enabled, e.currentTarget.value);
-                setReminder(r);
+                batch(() => setReminder(r));
               }}
             />
           </div>
@@ -240,9 +342,15 @@ export default function App() {
           tasks={tasks()}
           completionFilter={completionFilter()}
           colorFilterHex={colorFilterHex()}
+          dragEnabled={completionFilter() === "all" && colorFilterHex() === null}
+          onAfterTaskDrag={async () => {
+            await refreshAll();
+            await broadcastTodayTasksChanged({ needsFullReload: true });
+          }}
           onToggle={async (id) => {
             const u = await api.toggleTaskComplete(id);
-            setTasks((prev) => prev.map((t) => (t.id === u.id ? u : t)));
+            batch(() => setTasks((prev) => prev.map((t) => (t.id === u.id ? u : t))));
+            await broadcastTodayTasksChanged({ mergeInstances: [u] });
           }}
           onNewItem={(weekdayNum) => openNewTask([weekdayNum])}
           onEditRule={openEditRule}
@@ -263,7 +371,11 @@ export default function App() {
         weekAnchorMonday={formatYmd(weekStart())}
         initialWeekdays={taskModalInitialWeekdays()}
         onClose={() => setTaskModalOpen(false)}
-        onSaved={() => void refreshAll()}
+        onSaved={() => {
+          void refreshAll()
+            .then(() => broadcastTodayTasksChanged({ needsFullReload: true }))
+            .catch((err) => console.error("modal onSaved refresh", err));
+        }}
         onCreate={async (title, days, col, description, anchorWeekStart) => {
           await api.createTask(title, days, col, description, anchorWeekStart);
         }}

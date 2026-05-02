@@ -1,24 +1,11 @@
 /* @refresh reload */
 import { render } from "solid-js/web";
 import "./index.css";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { resolveWindowLabel } from "./lib/todayRefresh";
 import App from "./App";
 import TodayPopover from "./components/TodayPopover";
 
 /** Never throw on module load — `__TAURI_INTERNALS__` may appear after first paint. */
-function resolveWindowLabel(): string {
-  try {
-    if (
-      typeof window === "undefined" ||
-      (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ == null
-    ) {
-      return "main";
-    }
-    return getCurrentWindow().label;
-  } catch {
-    return "main";
-  }
-}
 
 function mount() {
   const root = document.getElementById("root");

@@ -68,7 +68,9 @@ export default function TaskRuleModal(props: Props) {
           setDays(init);
           setDescription("");
           setColor(normalizeHex(DEFAULT_TASK_HEX));
-          void api.getPreferredTaskColor().then((c) => setColor(normalizeHex(c)));
+          void api.getPreferredTaskColor().then((c) => {
+            setColor(normalizeHex(c));
+          });
         }
       },
     ),
@@ -107,8 +109,8 @@ export default function TaskRuleModal(props: Props) {
       } else {
         await props.onCreate(t, d, c, descTrim, props.weekAnchorMonday ?? "");
       }
-      props.onSaved();
       props.onClose();
+      props.onSaved();
       void api.setPreferredTaskColor(c).catch((e) => console.warn("setPreferredTaskColor", e));
     } catch (err) {
       console.error(err);
@@ -129,8 +131,8 @@ export default function TaskRuleModal(props: Props) {
     setSaveError("");
     try {
       await props.onDeleteSeries(e.id);
-      props.onSaved();
       props.onClose();
+      props.onSaved();
     } catch (err) {
       console.error(err);
       setSaveError(err instanceof Error ? err.message : String(err));

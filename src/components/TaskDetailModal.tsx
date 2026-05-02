@@ -17,11 +17,9 @@ function weekdayShortLabels(nums: number[]): string {
 
 export default function TaskDetailModal(props: Props) {
   return (
-    <Show when={() => props.open && props.task != null}>
-      {() => {
-        const task = props.task;
-        if (task == null) return null;
-
+    <Show when={props.open ? props.task : false}>
+      {(task) => {
+        const t = task();
         return (
           <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900">
@@ -30,12 +28,12 @@ export default function TaskDetailModal(props: Props) {
                   <button
                     type="button"
                     class="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 hover:ring-2 hover:ring-zinc-400 dark:ring-white/20 dark:hover:ring-zinc-500"
-                    style={{ "background-color": task.color ?? "#71717a" }}
+                    style={{ "background-color": t.color ?? "#71717a" }}
                     title="Cycle color"
                     aria-label="Cycle task color"
-                    onClick={() => void props.onCycleTemplateColor?.(task.templateId)}
+                    onClick={() => void props.onCycleTemplateColor?.(t.templateId)}
                   />
-                  <h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{task.templateTitle}</h3>
+                  <h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{t.templateTitle}</h3>
                 </div>
                 <button
                   type="button"
@@ -45,16 +43,16 @@ export default function TaskDetailModal(props: Props) {
                   Close
                 </button>
               </div>
-              <Show when={(task.templateDescription ?? "").trim()}>
+              <Show when={(t.templateDescription ?? "").trim()}>
                 <p class="mb-3 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">
-                  {(task.templateDescription ?? "").trim()}
+                  {(t.templateDescription ?? "").trim()}
                 </p>
               </Show>
               <dl class="mb-4 space-y-2 text-sm">
                 <div class="flex flex-col gap-0.5">
                   <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">Occurrence</dt>
                   <dd class="text-zinc-800 dark:text-zinc-200">
-                    {parseYmd(task.date).toLocaleDateString(undefined, {
+                    {parseYmd(t.date).toLocaleDateString(undefined, {
                       weekday: "long",
                       month: "short",
                       day: "numeric",
@@ -64,7 +62,7 @@ export default function TaskDetailModal(props: Props) {
                 <div class="flex flex-col gap-0.5">
                   <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">Repeat weekdays</dt>
                   <dd class="text-zinc-800 dark:text-zinc-200">
-                    {weekdayShortLabels(task.templateDaysOfWeek ?? [])}
+                    {weekdayShortLabels(t.templateDaysOfWeek ?? [])}
                   </dd>
                 </div>
               </dl>

@@ -106,7 +106,8 @@ pub fn run() {
             commands::get_reminder_settings,
             commands::set_reminder_settings,
             commands::get_theme_mode,
-            commands::set_theme_mode,
+            commands::reorder_task_instances,
+            commands::move_task_instance,
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" {
