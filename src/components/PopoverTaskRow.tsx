@@ -80,10 +80,11 @@ export default function PopoverTaskRow(props: PopoverTaskRowProps) {
 
   return (
     <div
+      id={`popover-task-${props.task.id}`}
       data-task-card=""
       class="mb-2 box-border flex min-h-[58px] gap-2 rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-900 items-center"
     >
-      <div
+      {/* <div
         class={`touch-none select-none self-start py-3 text-base leading-none text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-400 ${
           dragActive()
             ? "cursor-grab active:cursor-grabbing"
@@ -97,7 +98,7 @@ export default function PopoverTaskRow(props: PopoverTaskRowProps) {
         onDragStart={props.onDragStartRow}
       >
         ⋮⋮⋮
-      </div>
+      </div> */}
       <button
         type="button"
         class="mt-1 h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 hover:ring-2 hover:ring-zinc-400 disabled:opacity-50 dark:ring-white/20 dark:hover:ring-zinc-500"

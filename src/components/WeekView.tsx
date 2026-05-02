@@ -36,7 +36,7 @@ type Props = {
 function passesFilters(
   t: TaskInstance,
   completion: CompletionFilter,
-  colorFilterHex: string | null,
+  colorFilterHex: string | null
 ): boolean {
   if (completion === "active" && t.completed) return false;
   if (completion === "done" && !t.completed) return false;
@@ -84,7 +84,7 @@ function DayColumn(props: DayColumnProps) {
     return props.tasks
       .filter((t) => t.date === y)
       .filter((t) =>
-        passesFilters(t, props.completionFilter, props.colorFilterHex),
+        passesFilters(t, props.completionFilter, props.colorFilterHex)
       );
   };
 
@@ -115,7 +115,7 @@ function DayColumn(props: DayColumnProps) {
                 data-task-card=""
                 class="box-border flex min-h-[58px] gap-2 rounded-md px-px"
               >
-                {dnd() ? (
+                {/* {dnd() ? (
                   <div
                     class="touch-none cursor-grab select-none self-start py-3 text-base leading-none text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-400 active:cursor-grabbing"
                     draggable
@@ -126,7 +126,7 @@ function DayColumn(props: DayColumnProps) {
                   >
                     ⋮⋮⋮
                   </div>
-                ) : null}
+                ) : null} */}
                 <div class="min-w-0 flex-1">
                   <TaskItem
                     task={t}

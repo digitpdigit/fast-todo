@@ -118,6 +118,12 @@ export default function TaskRuleModal(props: Props) {
     }
   };
 
+  const saveShortcut = (e: KeyboardEvent) => {
+    if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    void save();
+  };
+
   const deleteSeries = async () => {
     const e = props.editing;
     if (!e || !props.onDeleteSeries) return;
@@ -170,6 +176,7 @@ export default function TaskRuleModal(props: Props) {
               class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-950"
               value={title()}
               onInput={(e) => setTitle(e.currentTarget.value)}
+              onKeyDown={saveShortcut}
               placeholder="e.g. Gym"
             />
           </label>
@@ -179,6 +186,7 @@ export default function TaskRuleModal(props: Props) {
               class="min-h-16 rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-950"
               value={description()}
               onInput={(e) => setDescription(e.currentTarget.value)}
+              onKeyDown={saveShortcut}
               placeholder="Notes, links, checklist…"
             />
           </label>

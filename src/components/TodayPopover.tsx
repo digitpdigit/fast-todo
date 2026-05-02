@@ -72,6 +72,7 @@ async function hideWindow() {
 export default function TodayPopover() {
   /** Popover task list scroller — preserve position across `load()` */
   let taskListScrollRoot: HTMLDivElement | undefined;
+  let quickInputEl: HTMLInputElement | undefined;
 
   const [viewDate, setViewDate] = createSignal(new Date());
 
@@ -101,12 +102,34 @@ export default function TodayPopover() {
 
   const dayYmd = () => formatYmd(viewDate());
 
-  const load = async () => {
+  type LoadOpts = { scrollToTemplateId?: string; afterScroll?: () => void };
+
+  const load = async (opts?: LoadOpts) => {
     const d = untrack(dayYmd);
     const ta = await api.getTasksForDate(d);
     const prevTop = taskListScrollRoot?.scrollTop ?? 0;
     batch(() => setTasks(ta));
-    restoreElementScrollAfterPaint(prevTop, () => taskListScrollRoot);
+    const scrollTid = opts?.scrollToTemplateId;
+    const instanceId =
+      scrollTid != null
+        ? ta.find((t) => t.templateId === scrollTid)?.id
+        : undefined;
+    if (scrollTid != null) {
+      queueMicrotask(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (instanceId) {
+              document
+                .getElementById(`popover-task-${instanceId}`)
+                ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            }
+            opts?.afterScroll?.();
+          });
+        });
+      });
+    } else {
+      restoreElementScrollAfterPaint(prevTop, () => taskListScrollRoot);
+    }
   };
 
   const bumpViewDay = (delta: number) => {
@@ -188,10 +211,13 @@ export default function TodayPopover() {
       const anchorMonday = formatYmd(startOfWeekMonday(vd));
       const dow = weekdayNumFromDate(vd);
       const col = normalizeHex(untrack(previewColor));
-      await api.createTask(title, [dow], col, "", anchorMonday);
+      const rule = await api.createTask(title, [dow], col, "", anchorMonday);
       void api.setPreferredTaskColor(col).catch(() => undefined);
       batch(() => setQuickTitle(""));
-      await load().catch((e) =>
+      await load({
+        scrollToTemplateId: rule.id,
+        afterScroll: () => quickInputEl?.focus(),
+      }).catch((e) =>
         console.error("TodayPopover.load after quick add", e),
       );
       await broadcastTodayTasksChanged({ needsFullReload: true });
@@ -472,9 +498,18 @@ export default function TodayPopover() {
                 value={quickTitle()}
                 disabled={quickBusy()}
                 data-tauri-drag-region-exclude=""
+                ref={(el) => {
+                  quickInputEl = el;
+                }}
                 onInput={(e) => setQuickTitle(e.currentTarget.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void submitQuickAdd();
+                  if (
+                    e.key === "Enter" &&
+                    (e.ctrlKey || e.metaKey || (!e.shiftKey && !e.altKey))
+                  ) {
+                    e.preventDefault();
+                    void submitQuickAdd();
+                  }
                 }}
               />
               <Show when={quickErr()}>
